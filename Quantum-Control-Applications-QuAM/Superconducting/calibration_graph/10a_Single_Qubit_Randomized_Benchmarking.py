@@ -49,7 +49,7 @@ class Parameters(NodeParameters):
     max_circuit_depth: int = 900  # Maximum circuit depth
     delta_clifford: int = 20
     seed: int = 345324
-    flux_point_joint_or_independent: Literal["joint", "independent"] = "independent"
+    flux_point_joint_or_independent: Literal["joint", "independent"] = "joint"
     reset_type_thermal_or_active: Literal["thermal", "active"] = "thermal"
     simulate: bool = False
     simulation_duration_ns: int = 2500
@@ -248,9 +248,10 @@ with program() as randomized_benchmarking:
                         if node.parameters.multiplexed:
                             qubit.align()
                         else:
-                            align(*([q.xy.name for q in machine.qubits.values()] +
-                                    [q.resonator.name for q in machine.qubits.values()] +
-                                    [q.z.name for q in machine.qubits.values()]))
+                            machine.apply_all_flux_to_joint_idle()
+                            # align(*([q.xy.name for q in machine.qubits.values()] +
+                            #         [q.resonator.name for q in machine.qubits.values()] +
+                            #         [q.z.name for q in machine.qubits.values()]))
                         # Initialize the qubits
                         if reset_type == "active":
                             active_reset(qubit)
