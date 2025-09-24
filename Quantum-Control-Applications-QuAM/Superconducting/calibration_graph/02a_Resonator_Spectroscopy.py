@@ -89,10 +89,8 @@ with program() as multi_res_spec:
     df = declare(int)  # QUA variable for the readout frequency
 
     # Bring the active qubits to the minimum frequency point
-    machine.apply_all_flux_to_joint_idle()
-    # # new sample
-    # machine.apply_all_flux_to_min()
-    machine.apply_all_couplers_to_min()
+    machine.apply_all_flux_to_min()
+    # machine.apply_all_couplers_to_min()
 
     with for_(n, 0, n < n_avg, n + 1):
         save(n, n_st)

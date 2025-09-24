@@ -47,8 +47,8 @@ class Parameters(NodeParameters):
     min_flux_offset_in_v: float = -0.5
     max_flux_offset_in_v: float = 0.5
     num_flux_points: int = 201
-    frequency_span_in_mhz: float = 30 #15
-    frequency_step_in_mhz: float = 0.1 #0.1
+    frequency_span_in_mhz: float = 7.5 #15
+    frequency_step_in_mhz: float = 0.05 #0.1
     flux_point_joint_or_independent: Literal["joint", "independent", ""] = "independent"
     input_line_impedance_in_ohm: float = 50
     line_attenuation_in_db: float = 0
@@ -118,6 +118,8 @@ with program() as multi_res_spec_vs_flux:
         rr = resonators[i]
         # Bring the active qubits to the minimum frequency point
         machine.set_all_fluxes(flux_point=flux_point, target=qubit)
+        if "c" in qubit.id: qubit.z.set_dc_offset(qubit.z.joint_offset)
+        qubit.z.settle()
         qubit.align()
 
         with for_(n, 0, n < n_avg, n + 1):
