@@ -4,29 +4,28 @@ from qualang_tools.wirer import Instruments, Connectivity, allocate_wiring, visu
 from quam_libs.quam_builder.machine import build_quam_wiring
 
 # Define static parameters
-host_ip = "qum.phys.sinica.edu.tw"  # QOP IP address
-port = 9501  # QOP Port
-cluster_name = "QPX1000_1"  # Name of the cluster
+host_ip = "10.21.19.201"  # QOP IP address
+port = 9513  # QOP Port
+cluster_name = "QPX1000_3"  # Name of the cluster
 # Desired location of wiring.json and state.json
 # The folder must not contain other json files.
-path = "/Users/adamachuck/Documents/GitHub/ASQUM/qua-libs/Quantum-Control-Applications-QuAM/Superconducting/configuration/quam_state"
+path = "/Users/ratiswu/Documents/GitHub/ASqum_QM_lab/Quantum-Control-Applications-QuAM/Superconducting/configuration/quam_state/DR1_2FQ1FC"
 
 # Define the available instrument setup
 instruments = Instruments()
-instruments.add_lf_fem(controller=1, slots=[1, 2, 3, 4, 5])
-instruments.add_mw_fem(controller=1, slots=[6, 7, 8])
+instruments.add_lf_fem(controller=1, slots=[1, 2])
+instruments.add_mw_fem(controller=1, slots=[6])
 
 # Define which qubit indices are present in the system
-qubits = [1, 2, 3, 4, 5]
-qubit_pairs = [(1, 2), (2, 3), (3, 4), (4, 5)]
+qubits = [1]
+qubit_pairs = []
 # Allocate the wiring to the connectivity object based on the available instruments
 connectivity = Connectivity()
 
 # Single feed-line for reading the resonators & individual qubit drive lines
 # Define any custom/hardcoded channel addresses
 connectivity.add_resonator_line(qubits=qubits)
-connectivity.add_qubit_flux_lines(qubits=qubits[0], constraints=lf_fem_spec(out_slot=2))
-connectivity.add_qubit_flux_lines(qubits=qubits[1:])
+connectivity.add_qubit_flux_lines(qubits=qubits)
 connectivity.add_qubit_drive_lines(qubits=qubits)
 connectivity.add_qubit_pair_flux_lines(qubit_pairs=qubit_pairs)  # Tunable coupler
 allocate_wiring(connectivity, instruments)
@@ -47,4 +46,4 @@ allocate_wiring(connectivity, instruments)
 build_quam_wiring(connectivity, host_ip, cluster_name, path, port)
 
 # View wiring schematic
-visualize(connectivity.elements, available_channels=instruments.available_channels)
+visualize(connectivity.elements, available_channels=instruments.available_channels,use_matplotlib=True)

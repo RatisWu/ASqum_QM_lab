@@ -44,17 +44,17 @@ import numpy as np
 # %% {Node_parameters}
 class Parameters(NodeParameters):
 
-    qubits: Optional[List[str]] = None
+    qubits: Optional[List[str]] = ['c1']
     num_averages: int = 200
-    frequency_span_in_mhz: float = 10 #15
-    frequency_step_in_mhz: float = 0.1
+    frequency_span_in_mhz: float = 1.5 #15
+    frequency_step_in_mhz: float = 0.01
     simulate: bool = False
     simulation_duration_ns: int = 2500
     timeout: int = 100
-    max_power_dbm: int = -20 #-30, -10
+    max_power_dbm: int = -10 #-30, -10
     min_power_dbm: int = -60 # -40
-    num_power_points: int = 100
-    max_amp: float = 0.9 #0.1
+    num_power_points: int = 55
+    max_amp: float = 0.1 #0.1
     flux_point_joint_or_independent: Literal["joint", "independent"] = "independent"
     ro_line_attenuation_dB: float = 0
     derivative_crossing_threshold_in_hz_per_dbm: int = int(-50e3)
@@ -309,10 +309,10 @@ if not node.parameters.simulate:
                         power_in_dbm=rr_optimal_power_dbm[q.name].item(),
                         max_amplitude=0.1
                     )
+                    fit_results[q.name] = power_settings
                 if not np.isnan(rr_optimal_frequencies[q.name]):
                     q.resonator.intermediate_frequency += rr_optimal_frequencies[q.name]
-        fit_results[q.name] = power_settings
-        fit_results[q.name]["RO_frequency"] = q.resonator.RF_frequency
+                    fit_results[q.name]["RO_frequency"] = q.resonator.RF_frequency
     node.results["fit_results"] = fit_results
 
     # %% {Save_results}

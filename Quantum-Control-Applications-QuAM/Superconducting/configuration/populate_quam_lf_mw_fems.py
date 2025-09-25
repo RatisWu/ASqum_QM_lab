@@ -17,28 +17,28 @@ def get_band(freq):
         raise ValueError(f"The specified frequency {freq} HZ is outside of the MW fem bandwidth [50 MHz, 10.5 GHz]")
 
 
-path = "D:\\qm_code\\as\\qua-libs\\Quantum-Control-Applications-QuAM\\Superconducting\\configuration\\quam_state\\as_qpu_opx1000"
+path = "/Users/ratiswu/Documents/GitHub/ASqum_QM_lab/Quantum-Control-Applications-QuAM/Superconducting/configuration/quam_state/DR1_2FQ1FC"
 machine = QuAM.load(path)
 u = unit(coerce_to_integer=True)
 
 # %%
 # Change active qubits
-machine.active_qubit_names = ["q1","q2","q3","q4","q5"]
+machine.active_qubit_names = ["q1"]
 
 for i in range(len(machine.qubits.items())):
     machine.qubits[f"q{i+1}"].grid_location = f"{i},0"
 
 # Update frequencies
-rr_freq = np.array([5932987219.0, 6023928729.0, 5866936123.0, 6079048431.0, 5971697831.0]) #* u.GHz
-rr_LO = 5.95 * u.GHz
+rr_freq = np.array([5.89]) * u.GHz
+rr_LO = 5.7 * u.GHz
 rr_if = rr_freq - rr_LO
-rr_max_power_dBm = -2
+rr_max_power_dBm = -11
 
-xy_freq = np.array([5108604110.9, 4834229255.6, 5146263353.0, 4674709204.1, 4880175329.7]) #* u.GHz
-xy_LO = np.array([6.0, 6.5, 6.5, 7.0, 7.04]) * u.GHz
-xy_LO = np.array([4.9]*5) * u.GHz
+xy_freq = np.array([6.5]) * u.GHz
+xy_LO = np.array([6.7]) * u.GHz
+# xy_LO = np.array([4.9]*5) * u.GHz
 xy_if = xy_freq - xy_LO
-xy_max_power_dBm = -2
+xy_max_power_dBm = -7
 
 # NOTE: be aware of coupled ports for bands
 for i, q in enumerate(machine.qubits):
@@ -105,16 +105,16 @@ for qp in machine.qubit_pairs.values():
 
 # Default: 
 machine.qubits["q1"].xy.thread = "a"
-machine.qubits["q2"].xy.thread = "b"
-machine.qubits["q3"].xy.thread = "c"
-machine.qubits["q4"].xy.thread = "d"
-machine.qubits["q5"].xy.thread = "e"
+# machine.qubits["q2"].xy.thread = "b"
+# machine.qubits["q3"].xy.thread = "c"
+# machine.qubits["q4"].xy.thread = "d"
+# machine.qubits["q5"].xy.thread = "e"
 
 machine.qubits["q1"].resonator.thread = "a"
-machine.qubits["q2"].resonator.thread = "b"
-machine.qubits["q3"].resonator.thread = "c"
-machine.qubits["q4"].resonator.thread = "d"
-machine.qubits["q5"].resonator.thread = "e"
+# machine.qubits["q2"].resonator.thread = "b"
+# machine.qubits["q3"].resonator.thread = "c"
+# machine.qubits["q4"].resonator.thread = "d"
+# machine.qubits["q5"].resonator.thread = "e"
 
 # %%
 # q1 = machine.qubits["q1"]
