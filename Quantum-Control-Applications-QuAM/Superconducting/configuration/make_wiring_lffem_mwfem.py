@@ -5,11 +5,11 @@ from quam_libs.quam_builder.machine import build_quam_wiring
 
 # Define static parameters
 host_ip = "10.21.19.201"  # QOP IP address
-port = 9514  # QOP Port
-cluster_name = "QPX1000_4"  # Name of the cluster
+port = 9515  # QOP Port
+cluster_name = "QPX1000_5"  # Name of the cluster
 # Desired location of wiring.json and state.json
 # The folder must not contain other json files.
-path = "/Users/ratiswu/Documents/GitHub/ASqum_QM_lab/Quantum-Control-Applications-QuAM/Superconducting/configuration/quam_state/DR4_2q1c_test"
+path = "/Users/ratiswu/Documents/GitHub/ASqum_QM_lab/Quantum-Control-Applications-QuAM/Superconducting/configuration/quam_state/sq_test"
 
 # Define the available instrument setup
 instruments = Instruments()
@@ -17,7 +17,7 @@ instruments.add_lf_fem(controller=1, slots=[1, 2])
 instruments.add_mw_fem(controller=1, slots=[6])
 
 # Define which qubit indices are present in the system
-qubits = [1,2,3] # 1,2,3,4,5 
+qubits = [1,2] # 1,2,3,4,5 
 qubit_pairs = [(1,2)] # (1, 2), (2, 3), (3, 4), (4, 5)
 # Allocate the wiring to the connectivity object based on the available instruments
 connectivity = Connectivity()
@@ -27,7 +27,7 @@ connectivity = Connectivity()
 connectivity.add_resonator_line(qubits=qubits)
 connectivity.add_qubit_flux_lines(qubits=qubits)
 connectivity.add_qubit_drive_lines(qubits=qubits)
-connectivity.add_qubit_pair_flux_lines(qubit_pairs=qubit_pairs)  # Tunable coupler
+connectivity.add_qubit_pair_flux_lines(qubit_pairs=qubit_pairs[0], constraints=lf_fem_spec(con=1, in_slot=None, in_port=None, out_slot=1, out_port=6))  # Tunable coupler
 allocate_wiring(connectivity, instruments)
 
 # Single feed-line for reading the resonators & driving the qubits + flux on specific fem slot
