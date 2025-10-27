@@ -5,11 +5,11 @@ matplotlib.use('Agg')
 # %% {cope the Import package}
 from qualibrate import QualibrationNode, NodeParameters
 from quam_libs.components import QuAM
-from quam_libs.macros import qua_declaration, readout_state
+from quam_libs.macros import qua_declaration, readout_state, active_reset
 from quam_libs.lib.qua_datasets import convert_IQ_to_V
 from quam_libs.lib.plot_utils import QubitGrid, grid_iter
 from quam_libs.lib.save_utils import fetch_results_as_xarray, load_dataset
-from quam_libs.lib.fit import fit_oscillation_decay_exp, oscillation_decay_exp
+from quam_libs.lib.fit import fit_oscillation_decay_exp, oscillation_decay_exp, fit_decay_exp, decay_exp
 from qualang_tools.results import progress_counter, fetching_tool
 from qualang_tools.loops import from_array
 from qualang_tools.multi_user import qm_session
@@ -21,7 +21,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-def run_once():
+def run_flux_offset(params: Optional[NodeParameters] = None):
     ### The start of the copy ### copy the node to here
     # %% {Node_parameters}
     class Parameters(NodeParameters):
@@ -39,7 +39,12 @@ def run_once():
         timeout: int = 100
         load_data_id: Optional[int] = None
         multiplexed: bool = False
-
+        
+    if params is not None:
+        # 用外部 params 覆蓋預設值（只覆蓋有定義的欄位）
+        for k, v in params.__dict__.items():
+            if hasattr(Parameters(), k) and v is not None:
+                setattr(Parameters(), k, v)
     node = QualibrationNode(name="06a_Ramsey_vs_Flux_Calibration", parameters=Parameters())
 
 
@@ -293,3 +298,571 @@ def run_once():
                 qubits_name.append(qubit.name)
 
     return fluctactuation, qubits_name
+
+def run_T1(params: Optional[NodeParameters] = None):
+    """
+    Run T1 measurement and return extracted T1, T1_err (in µs), and qubit names.
+    """
+
+    # %% {Node_parameters}
+    class Parameters(NodeParameters):
+        qubits: Optional[List[str]] = None
+        num_averages: int = 300
+        min_wait_time_in_ns: int = 16
+        max_wait_time_in_ns: int = 90000
+        wait_time_step_in_ns: int = 300
+        flux_point_joint_or_independent_or_arbitrary: Literal["joint", "independent", "arbitrary"] = "independent"
+        reset_type: Literal["active", "thermal"] = "thermal"
+        use_state_discrimination: bool = False
+        simulate: bool = False
+        simulation_duration_ns: int = 2500
+        timeout: int = 100
+        load_data_id: Optional[int] = None
+        multiplexed: bool = True
+
+    if params is not None:
+        # 用外部 params 覆蓋預設值（只覆蓋有定義的欄位）
+        for k, v in params.__dict__.items():
+            if hasattr(Parameters(), k) and v is not None:
+                setattr(Parameters(), k, v)
+    node = QualibrationNode(name="05_T1", parameters=Parameters())
+
+    # %% {Initialize_QuAM_and_QOP}
+    u = unit(coerce_to_integer=True)
+    machine = QuAM.load()
+    config = machine.generate_config()
+    if node.parameters.load_data_id is None:
+        qmm = machine.connect()
+
+    if node.parameters.qubits is None or node.parameters.qubits == "":
+        qubits = machine.active_qubits
+    else:
+        qubits = [machine.qubits[q] for q in node.parameters.qubits]
+    num_qubits = len(qubits)
+
+    # %% {QUA_program}
+    n_avg = node.parameters.num_averages
+    idle_times = np.arange(
+        node.parameters.min_wait_time_in_ns // 4,
+        node.parameters.max_wait_time_in_ns // 4,
+        node.parameters.wait_time_step_in_ns // 4,
+    )
+
+    flux_point = node.parameters.flux_point_joint_or_independent_or_arbitrary
+    if flux_point == "arbitrary":
+        detunings = {q.name: q.arbitrary_intermediate_frequency for q in qubits}
+        arb_flux_bias_offset = {q.name: q.z.arbitrary_offset for q in qubits}
+    else:
+        arb_flux_bias_offset = {q.name: 0.0 for q in qubits}
+        detunings = {q.name: 0.0 for q in qubits}
+
+    with program() as t1:
+        I, I_st, Q, Q_st, n, n_st = qua_declaration(num_qubits=num_qubits)
+        t = declare(int)
+        if node.parameters.use_state_discrimination:
+            state = [declare(int) for _ in range(num_qubits)]
+            state_st = [declare_stream() for _ in range(num_qubits)]
+
+        machine.apply_all_couplers_to_min()
+        for i, qubit in enumerate(qubits):
+            machine.set_all_fluxes(flux_point=flux_point, target=qubit)
+            if "c" in qubit.id:
+                qubit.z.set_dc_offset(qubit.z.joint_offset)
+            qubit.z.settle()
+            qubit.align()
+
+            with for_(n, 0, n < n_avg, n + 1):
+                save(n, n_st)
+                with for_(*from_array(t, idle_times)):
+                    if node.parameters.reset_type == "active":
+                        active_reset_simple(qubit, "readout")
+                    else:
+                        qubit.resonator.wait(qubit.thermalization_time * u.ns)
+                        qubit.align()
+
+                    qubit.xy.play("x180")
+                    qubit.align()
+                    qubit.z.wait(20)
+                    qubit.z.play(
+                        "const",
+                        amplitude_scale=arb_flux_bias_offset[qubit.name] / qubit.z.operations["const"].amplitude,
+                        duration=t,
+                    )
+                    qubit.z.wait(20)
+                    qubit.align()
+
+                    if node.parameters.use_state_discrimination:
+                        readout_state(qubit, state[i])
+                        save(state[i], state_st[i])
+                    else:
+                        qubit.resonator.measure("readout", qua_vars=(I[i], Q[i]))
+                        save(I[i], I_st[i])
+                        save(Q[i], Q_st[i])
+
+            if not node.parameters.multiplexed:
+                align()
+
+        with stream_processing():
+            n_st.save("n")
+            for i in range(num_qubits):
+                if node.parameters.use_state_discrimination:
+                    state_st[i].buffer(len(idle_times)).average().save(f"state{i + 1}")
+                else:
+                    I_st[i].buffer(len(idle_times)).average().save(f"I{i + 1}")
+                    Q_st[i].buffer(len(idle_times)).average().save(f"Q{i + 1}")
+
+    # %% {Simulate_or_execute}
+    if node.parameters.simulate:
+        simulation_config = SimulationConfig(duration=node.parameters.simulation_duration_ns * 4)
+        job = qmm.simulate(config, t1, simulation_config)
+        samples = job.get_simulated_samples()
+        fig, ax = plt.subplots(nrows=len(samples.keys()), sharex=True)
+        for i, con in enumerate(samples.keys()):
+            plt.subplot(len(samples.keys()), 1, i + 1)
+            samples[con].plot()
+            plt.title(con)
+        plt.tight_layout()
+        node.results = {"figure": plt.gcf()}
+        node.machine = machine
+        node.save()
+    elif node.parameters.load_data_id is None:
+        with qm_session(qmm, config, timeout=node.parameters.timeout) as qm:
+            job = qm.execute(t1)
+            results = fetching_tool(job, ["n"], mode="live")
+            while results.is_processing():
+                n = results.fetch_all()[0]
+                progress_counter(n, n_avg, start_time=results.start_time)
+
+    # %% {Data_fetching_and_dataset_creation}
+    if not node.parameters.simulate:
+        if node.parameters.load_data_id is None:
+            ds = fetch_results_as_xarray(job.result_handles, qubits, {"idle_time": idle_times})
+            ds = convert_IQ_to_V(ds, qubits)
+            ds = ds.assign_coords(idle_time=4 * ds.idle_time / u.us)
+            ds.idle_time.attrs = {"long_name": "idle time", "units": "µs"}
+        else:
+            ds, machine, json_data, qubits, node.parameters = load_dataset(
+                node.parameters.load_data_id, parameters=node.parameters
+            )
+        node.results = {"ds": ds}
+
+        # %% {Data_analysis}
+        if node.parameters.use_state_discrimination:
+            fit_data = fit_decay_exp(ds.state, "idle_time")
+        else:
+            fit_data = fit_decay_exp(ds.I, "idle_time")
+        fit_data.attrs = {"long_name": "time", "units": "µs"}
+
+        fitted = decay_exp(
+            ds.idle_time,
+            fit_data.sel(fit_vals="a"),
+            fit_data.sel(fit_vals="offset"),
+            fit_data.sel(fit_vals="decay"),
+        )
+
+        decay = fit_data.sel(fit_vals="decay")
+        decay_res = fit_data.sel(fit_vals="decay_decay")
+        tau = -1 / fit_data.sel(fit_vals="decay")
+        tau.attrs = {"long_name": "T1", "units": "µs"}
+        tau_error = -tau * (np.sqrt(decay_res) / decay)
+        tau_error.attrs = {"long_name": "T1 error", "units": "µs"}
+
+        # %% {Plotting}
+        grid = QubitGrid(ds, [q.grid_location for q in qubits])
+        for ax, qubit in grid_iter(grid):
+            if node.parameters.use_state_discrimination:
+                ds.sel(qubit=qubit["qubit"]).state.plot(ax=ax)
+                ax.set_ylabel("State")
+            else:
+                ds.sel(qubit=qubit["qubit"]).I.plot(ax=ax)
+                ax.set_ylabel("I (V)")
+            ax.plot(ds.idle_time, fitted.loc[qubit], "r--")
+            ax.set_title(qubit["qubit"])
+            ax.set_xlabel("Idle_time (uS)")
+            ax.text(
+                0.1,
+                0.9,
+                f'T1 = {tau.sel(qubit=qubit["qubit"]).values:.1f} ± {tau_error.sel(qubit=qubit["qubit"]).values:.1f} µs',
+                transform=ax.transAxes,
+                fontsize=10,
+                verticalalignment="top",
+                bbox=dict(facecolor="white", alpha=0.5),
+            )
+        grid.fig.suptitle("T1")
+        plt.tight_layout()
+        plt.show()
+        node.results["figure_raw"] = grid.fig
+
+        # %% {Update_state}
+        if node.parameters.load_data_id is None:
+            with node.record_state_updates():
+                for index, q in enumerate(qubits):
+                    if (
+                        float(tau.sel(qubit=q.name).values) > 0
+                        and tau_error.sel(qubit=q.name).values / float(tau.sel(qubit=q.name).values) < 1
+                    ):
+                        q.T1 = float(tau.sel(qubit=q.name).values) * 1e-6
+
+            node.results["initial_parameters"] = node.parameters.model_dump()
+            node.machine = machine
+            node.save()
+
+    # --- return only T1, T1_err, and qubit names ---
+    T1 = [float(tau.sel(qubit=q.name).values) for q in qubits]
+    T1_err = [float(tau_error.sel(qubit=q.name).values) for q in qubits]
+    qubits_name = [q.name for q in qubits]
+
+    return T1, T1_err, qubits_name
+
+def run_T2_echo(params: Optional[NodeParameters] = None):
+    """
+    Run T2-echo measurement and return extracted T2, T2_error (in µs), and qubit names.
+    """
+
+    # %% {Node_parameters}
+    class Parameters(NodeParameters):
+        qubits: Optional[List[str]] = None
+        num_averages: int = 300
+        min_wait_time_in_ns: int = 16
+        max_wait_time_in_ns: int = 50000
+        wait_time_step_in_ns: int = 300
+        flux_point_joint_or_independent_or_arbitrary: Literal["joint", "independent", "arbitrary"] = "arbitrary"
+        reset_type: Literal["active", "thermal"] = "thermal"
+        use_state_discrimination: bool = True
+        simulate: bool = False
+        simulation_duration_ns: int = 2500
+        timeout: int = 100
+        load_data_id: Optional[int] = None
+        multiplexed: bool = True
+
+    if params is not None:
+        # 用外部 params 覆蓋預設值（只覆蓋有定義的欄位）
+        for k, v in params.__dict__.items():
+            if hasattr(Parameters(), k) and v is not None:
+                setattr(Parameters(), k, v)
+    node = QualibrationNode(name="06b_T2_echo", parameters=Parameters())
+
+    # %% {Initialize_QuAM_and_QOP}
+    u = unit(coerce_to_integer=True)
+    machine = QuAM.load()
+    config = machine.generate_config()
+    if node.parameters.load_data_id is None:
+        qmm = machine.connect()
+
+    if node.parameters.qubits is None or node.parameters.qubits == "":
+        qubits = machine.active_qubits
+    else:
+        qubits = [machine.qubits[q] for q in node.parameters.qubits]
+    num_qubits = len(qubits)
+
+    # %% {QUA_program}
+    n_avg = node.parameters.num_averages
+    idle_times = np.arange(
+        node.parameters.min_wait_time_in_ns // 4,
+        node.parameters.max_wait_time_in_ns // 4,
+        node.parameters.wait_time_step_in_ns // 4,
+    )
+
+    flux_point = node.parameters.flux_point_joint_or_independent_or_arbitrary
+    if flux_point == "arbitrary":
+        arb_flux_bias_offset = {q.name: q.z.arbitrary_offset for q in qubits}
+    else:
+        arb_flux_bias_offset = {q.name: 0.0 for q in qubits}
+
+    with program() as t2_echo:
+        I, I_st, Q, Q_st, n, n_st = qua_declaration(num_qubits=num_qubits)
+        t = declare(int)
+        if node.parameters.use_state_discrimination:
+            state = [declare(int) for _ in range(num_qubits)]
+            state_st = [declare_stream() for _ in range(num_qubits)]
+
+        machine.apply_all_couplers_to_min()
+        for i, qubit in enumerate(qubits):
+            machine.set_all_fluxes(flux_point=flux_point, target=qubit)
+            if "c" in qubit.id:
+                qubit.z.set_dc_offset(qubit.z.joint_offset)
+            qubit.z.settle()
+            qubit.align()
+
+            with for_(n, 0, n < n_avg, n + 1):
+                save(n, n_st)
+                with for_(*from_array(t, idle_times)):
+                    if node.parameters.reset_type == "active":
+                        active_reset(qubit, "readout")
+                    else:
+                        qubit.resonator.wait(qubit.thermalization_time * u.ns)
+                        qubit.align()
+
+                    # T2-echo sequence
+                    qubit.xy.play("x90")
+                    qubit.align()
+                    qubit.z.wait(20)
+                    qubit.z.play(
+                        "const",
+                        amplitude_scale=arb_flux_bias_offset[qubit.name] / qubit.z.operations["const"].amplitude,
+                        duration=t,
+                    )
+                    qubit.z.wait(20)
+                    qubit.align()
+                    qubit.xy.play("x180")
+                    qubit.align()
+                    qubit.z.wait(20)
+                    qubit.z.play(
+                        "const",
+                        amplitude_scale=arb_flux_bias_offset[qubit.name] / qubit.z.operations["const"].amplitude,
+                        duration=t,
+                    )
+                    qubit.z.wait(20)
+                    qubit.align()
+                    qubit.xy.play("-x90")
+                    qubit.align()
+
+                    if node.parameters.use_state_discrimination:
+                        readout_state(qubit, state[i])
+                        save(state[i], state_st[i])
+                    else:
+                        qubit.resonator.measure("readout", qua_vars=(I[i], Q[i]))
+                        save(I[i], I_st[i])
+                        save(Q[i], Q_st[i])
+
+            if not node.parameters.multiplexed:
+                align()
+
+        with stream_processing():
+            n_st.save("n")
+            for i in range(num_qubits):
+                if node.parameters.use_state_discrimination:
+                    state_st[i].buffer(len(idle_times)).average().save(f"state{i + 1}")
+                else:
+                    I_st[i].buffer(len(idle_times)).average().save(f"I{i + 1}")
+                    Q_st[i].buffer(len(idle_times)).average().save(f"Q{i + 1}")
+
+    # %% {Simulate_or_execute}
+    if node.parameters.simulate:
+        simulation_config = SimulationConfig(duration=node.parameters.simulation_duration_ns * 4)
+        job = qmm.simulate(config, t2_echo, simulation_config)
+        samples = job.get_simulated_samples()
+        fig, ax = plt.subplots(nrows=len(samples.keys()), sharex=True)
+        for i, con in enumerate(samples.keys()):
+            plt.subplot(len(samples.keys()), 1, i + 1)
+            samples[con].plot()
+            plt.title(con)
+        plt.tight_layout()
+        node.results = {"figure": plt.gcf()}
+        node.machine = machine
+        node.save()
+    elif node.parameters.load_data_id is None:
+        with qm_session(qmm, config, timeout=node.parameters.timeout) as qm:
+            job = qm.execute(t2_echo)
+            results = fetching_tool(job, ["n"], mode="live")
+            while results.is_processing():
+                n = results.fetch_all()[0]
+                progress_counter(n, n_avg, start_time=results.start_time)
+
+    # %% {Data_fetching_and_dataset_creation}
+    if not node.parameters.simulate:
+        if node.parameters.load_data_id is None:
+            ds = fetch_results_as_xarray(job.result_handles, qubits, {"idle_time": idle_times})
+            ds = ds.assign_coords(idle_time=8 * ds.idle_time / 1e3)
+            ds.idle_time.attrs = {"long_name": "idle time", "units": "µs"}
+        else:
+            ds, machine, json_data, qubits, node.parameters = load_dataset(node.parameters.load_data_id, parameters=node.parameters)
+        node.results = {"ds": ds}
+
+        # %% {Data_analysis}
+        if node.parameters.use_state_discrimination:
+            fit_data = fit_decay_exp(ds.state, "idle_time")
+        else:
+            fit_data = fit_decay_exp(ds.I, "idle_time")
+        fit_data.attrs = {"long_name": "time", "units": "µs"}
+
+        fitted = decay_exp(
+            ds.idle_time,
+            fit_data.sel(fit_vals="a"),
+            fit_data.sel(fit_vals="offset"),
+            fit_data.sel(fit_vals="decay"),
+        )
+
+        decay = fit_data.sel(fit_vals="decay")
+        decay_res = fit_data.sel(fit_vals="decay_decay")
+        tau = -1 / fit_data.sel(fit_vals="decay")
+        tau.attrs = {"long_name": "T2", "units": "µs"}
+        tau_error = -tau * (np.sqrt(decay_res) / decay)
+        tau_error.attrs = {"long_name": "T2 error", "units": "µs"}
+
+        # %% {Plotting}
+        grid = QubitGrid(ds, [q.grid_location for q in qubits])
+        for ax, qubit in grid_iter(grid):
+            if node.parameters.use_state_discrimination:
+                ds.sel(qubit=qubit["qubit"]).state.plot(ax=ax)
+                ax.set_ylabel("State")
+            else:
+                ds.sel(qubit=qubit["qubit"]).I.plot(ax=ax)
+                ax.set_ylabel("I (V)")
+            ax.plot(ds.idle_time, fitted.loc[qubit], "r--")
+            ax.set_title(qubit["qubit"])
+            ax.set_xlabel("Idle_time (µs)")
+            ax.text(
+                0.1,
+                0.9,
+                f'T2 = {tau.sel(qubit=qubit["qubit"]).values:.1f} ± {tau_error.sel(qubit=qubit["qubit"]).values:.1f} µs',
+                transform=ax.transAxes,
+                fontsize=10,
+                verticalalignment="top",
+                bbox=dict(facecolor="white", alpha=0.5),
+            )
+        grid.fig.suptitle("T2 echo")
+        plt.tight_layout()
+        plt.show()
+        node.results["figure_raw"] = grid.fig
+
+        # %% {Update_state}
+        if node.parameters.load_data_id is None:
+            with node.record_state_updates():
+                for index, q in enumerate(qubits):
+                    if float(tau.sel(qubit=q.name).values) > 0 and tau_error.sel(qubit=q.name).values / float(tau.sel(qubit=q.name).values) < 1:
+                        q.T2_echo = float(tau.sel(qubit=q.name).values) * 1e-6
+
+            node.results["initial_parameters"] = node.parameters.model_dump()
+            node.machine = machine
+            node.save()
+
+    # --- return only T2, T2_error, and qubit names ---
+    T2 = [float(tau.sel(qubit=q.name).values) for q in qubits]
+    T2_err = [float(tau_error.sel(qubit=q.name).values) for q in qubits]
+    qubits_name = [q.name for q in qubits]
+
+    return T2, T2_err, qubits_name
+
+def run_ge(params: Optional[NodeParameters] = None):
+    """
+    Run IQ measurement and return the 'ge' element of the confusion matrix for each qubit.
+    """
+
+    # %% {Node_parameters}
+    class Parameters(NodeParameters):
+        qubits: Optional[List[str]] = None
+        num_averages: int = 500
+        use_two_state_discrimination: bool = True
+        simulate: bool = False
+        simulation_duration_ns: int = 2500
+        timeout: int = 100
+        load_data_id: Optional[int] = None
+        multiplexed: bool = False
+
+    if params is not None:
+        # 用外部 params 覆蓋預設值（只覆蓋有定義的欄位）
+        for k, v in params.__dict__.items():
+            if hasattr(Parameters(), k) and v is not None:
+                setattr(Parameters(), k, v)
+    node = QualibrationNode(name="IQ_ge_measurement", parameters=Parameters())
+
+    # %% {Initialize_QuAM_and_QOP}
+    u = unit(coerce_to_integer=True)
+    machine = QuAM.load()
+    config = machine.generate_config()
+    if node.parameters.load_data_id is None:
+        qmm = machine.connect()
+
+    if node.parameters.qubits is None or node.parameters.qubits == "":
+        qubits = machine.active_qubits
+    else:
+        qubits = [machine.qubits[q] for q in node.parameters.qubits]
+    num_qubits = len(qubits)
+
+    # %% {QUA_program}
+    n_avg = node.parameters.num_averages
+
+    with program() as iq_measure:
+        I, I_st, Q, Q_st, n, n_st = qua_declaration(num_qubits=num_qubits)
+        state = [declare(int) for _ in range(num_qubits)]
+        state_st = [declare_stream() for _ in range(num_qubits)]
+
+        for i, qubit in enumerate(qubits):
+            machine.set_all_fluxes(flux_point="independent", target=qubit)
+            qubit.z.settle()
+            qubit.align()
+
+            with for_(n, 0, n < n_avg, n + 1):
+                save(n, n_st)
+                # Measure |g>
+                qubit.resonator.measure("readout", qua_vars=(I[i], Q[i]))
+                save(I[i], I_st[i])
+                save(Q[i], Q_st[i])
+                # Apply X180 to go to |e>
+                qubit.xy.play("x180")
+                qubit.align()
+                # Measure |e>
+                qubit.resonator.measure("readout", qua_vars=(I[i], Q[i]))
+                save(I[i], I_st[i])
+                save(Q[i], Q_st[i])
+                # Reset qubit
+                qubit.xy.play("x180")
+                qubit.align()
+
+            if not node.parameters.multiplexed:
+                align()
+
+        with stream_processing():
+            n_st.save("n")
+            for i in range(num_qubits):
+                I_st[i].buffer(n_avg).average().save(f"I{i + 1}")
+                Q_st[i].buffer(n_avg).average().save(f"Q{i + 1}")
+
+    # %% {Simulate_or_execute}
+    if node.parameters.simulate:
+        simulation_config = SimulationConfig(duration=node.parameters.simulation_duration_ns * 4)
+        job = qmm.simulate(config, iq_measure, simulation_config)
+        samples = job.get_simulated_samples()
+        fig, ax = plt.subplots(nrows=len(samples.keys()), sharex=True)
+        for i, con in enumerate(samples.keys()):
+            plt.subplot(len(samples.keys()), 1, i + 1)
+            samples[con].plot()
+            plt.title(con)
+        plt.tight_layout()
+        node.results = {"figure": plt.gcf()}
+        node.machine = machine
+        node.save()
+
+    elif node.parameters.load_data_id is None:
+        with qm_session(qmm, config, timeout=node.parameters.timeout) as qm:
+            job = qm.execute(iq_measure)
+            results = fetching_tool(job, ["n"], mode="live")
+            while results.is_processing():
+                n = results.fetch_all()[0]
+                progress_counter(n, n_avg, start_time=results.start_time)
+
+    # %% {Data_fetching_and_dataset_creation}
+    if not node.parameters.simulate:
+        if node.parameters.load_data_id is None:
+            ds = fetch_results_as_xarray(job.result_handles, qubits)
+        else:
+            ds, machine, json_data, qubits, node.parameters = load_dataset(
+                node.parameters.load_data_id, parameters=node.parameters
+            )
+        node.results = {"ds": ds}
+
+    # %% {Data_analysis}
+    ge_list = []
+    plot_individual = False
+
+    for q in qubits:
+        angle, threshold, fidelity, gg, ge, eg, ee = two_state_discriminator(
+            ds.I_g.sel(qubit=q.name),
+            ds.Q_g.sel(qubit=q.name),
+            ds.I_e.sel(qubit=q.name),
+            ds.Q_e.sel(qubit=q.name),
+            True,
+            b_plot=plot_individual,
+        )
+
+        ge_list.append(ge)
+
+    # %% {Save_results_and_update_state}
+    node.results["initial_parameters"] = node.parameters.model_dump()
+    node.machine = machine
+    node.save()
+
+    # --- return ge list and qubit names ---
+    qubits_name = [q.name for q in qubits]
+    return ge_list, qubits_name
