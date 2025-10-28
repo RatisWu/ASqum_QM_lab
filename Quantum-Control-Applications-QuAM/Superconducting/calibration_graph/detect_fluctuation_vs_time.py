@@ -12,11 +12,11 @@ def to_float_clean(x):
 
 # --- 可修改的參數 ---
 num_runs = None   # None means keep running until Ctrl+C
-cooldown_sec = 60  # 每次間隔秒數
+cooldown_sec = 60  # CD time between runs in seconds
 
-# --- 設定每個 function 的參數 ---
-# 這邊你可以個別設定要傳給 function 的 NodeParameters
-# 若為 None，就會使用 function 裡自己的內建 Parameters
+# --- node parameters ---
+# custimize parameters for each function here
+
 parameters_for_functions = {
     "flux_offset": NodeParameters(
         qubits = None
@@ -76,7 +76,7 @@ parameters_for_functions = {
     ),
 }
 
-# --- 選擇每次要跑的 function ---
+# --- node options, comment for skip ---
 functions_to_run = {
     "flux_offset": run_flux_offset,
     "T1": run_T1,
@@ -84,22 +84,22 @@ functions_to_run = {
     "GE": run_ge,
 }
 
-# --- 資料儲存路徑 ---
+# --- Data path ---
 out_dir = Path(r'd:\qm_code\as\qua-libs\Quantum-Control-Applications-QuAM\Superconducting\data')
 out_dir.mkdir(parents=True, exist_ok=True)
 
 session_ts = datetime.now().isoformat(timespec="seconds").replace(":", "-")
 excel_file = out_dir / f"qubit_measurements_{session_ts}.xlsx"
 
-# --- 初始化 ---
-qubit_dfs = {}  # 每個 qubit 對應一個 DataFrame
-qubit_names_global = None  # 第一 run 的 qubit 名稱，用來初始化欄位
+# --- initialization ---
+qubit_dfs = {}  # DataFrames for each qubit
+qubit_names_global = None  # initialize qubit names
 
 print("Press Ctrl+C to stop running.\n")
 
 i = 0
 try:
-    # 無限或有限次迴圈
+    # while loop for a limited or unlimited runs 
     while True if num_runs is None else i < num_runs:
         i += 1
         ts = datetime.now().isoformat(timespec="seconds")
@@ -109,7 +109,7 @@ try:
         run_results = {}
 
         try:
-            # --- 逐個 function 執行 ---
+            # --- execute node ---
             for fname, func in functions_to_run.items():
                 params = parameters_for_functions.get(fname, None)
                 result = func(params) if params is not None else func()
@@ -122,7 +122,7 @@ try:
                 for q in qubit_names_global:
                     qubit_dfs[q] = pd.DataFrame(columns=["run_index", "timestamp", *functions_to_run.keys()])
 
-            # --- 填入這次結果 ---
+            # --- append this results ---
             for idx, q in enumerate(qubit_names_global):
                 row = {"run_index": i, "timestamp": ts}
                 for fname in functions_to_run.keys():
@@ -139,7 +139,7 @@ try:
 except KeyboardInterrupt:
     print("\n🟡 Detected Ctrl+C — stopping gracefully…")
 
-# --- 儲存成 Excel ---
+# --- to Excel ---
 if qubit_dfs:
     with pd.ExcelWriter(excel_file, engine="openpyxl") as writer:
         for qname, df in qubit_dfs.items():
