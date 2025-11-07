@@ -40,17 +40,17 @@ from scipy.signal import find_peaks
 # %% {Node_parameters}
 class Parameters(NodeParameters):
 
-    qubits: Optional[List[str]] = ["q1","q2"]
+    qubits: Optional[List[str]] = ["q1"]
     qubit_pair: str = "coupler_q1_q2"
     num_averages: int = 25
     operation: str = "saturation"
-    operation_amplitude_factor: Optional[float] = 0.1
+    operation_amplitude_factor: Optional[float] = 0.03
     operation_len_in_ns: Optional[int] = None
-    frequency_span_in_mhz: float = 125
+    frequency_span_in_mhz: float = 250
     frequency_step_in_mhz: float = 0.2
-    min_flux_offset_in_v: float = -0.5
-    max_flux_offset_in_v: float = 0.5
-    num_flux_points: int = 201
+    min_flux_offset_in_v: float = -0.02
+    max_flux_offset_in_v: float = 0.02
+    num_flux_points: int = 101
     flux_point_joint_or_independent: Literal["joint", "independent"] = "independent"
     simulate: bool = False
     simulation_duration_ns: int = 2500
@@ -58,7 +58,7 @@ class Parameters(NodeParameters):
     load_data_id: Optional[int] = None
 
 
-node = QualibrationNode(name="03c_Qubit_Spectroscopy_vs_Coupler_Flux", parameters=Parameters())
+node = QualibrationNode(name="RSwap_Spectroscopy_vs_Coupler_Flux", parameters=Parameters())
 #node_id = get_node_id()
 
 
@@ -139,6 +139,13 @@ with program() as multi_qubit_spec_vs_flux:
                         duration=duration,
                     )
                     qubit.align()
+
+                    # Play the Rswap
+                    qubit.z.wait(20)
+                    qubit.z.play("r_swap")
+                    qubit.z.wait(20)
+                    qubit.align()
+                    
                     # QUA macro to read the state of the active resonators
                     qubit.resonator.measure("readout", qua_vars=(I[i], Q[i]))
                     # save data
@@ -267,11 +274,11 @@ if not node.parameters.simulate:
     plt.show()
     node.results["figure"] = grid.fig
 
-    # %% {Update_state}
-    if node.parameters.load_data_id is None:
-        with node.record_state_updates():
-            # take decouple offset as the average of the avoided crossing points
-            qubit_pair.coupler.decouple_offset = fit_results["decouple_offset_mean"]
+    # # %% {Update_state}
+    # if node.parameters.load_data_id is None:
+    #     with node.record_state_updates():
+    #         # take decouple offset as the average of the avoided crossing points
+    #         qubit_pair.coupler.decouple_offset = fit_results["decouple_offset_mean"]
     # %% {Save_results}
     node.results["ds"] = ds
     node.outcomes = {q.name: "successful" for q in qubits}
