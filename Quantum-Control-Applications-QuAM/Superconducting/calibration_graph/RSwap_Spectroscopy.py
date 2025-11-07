@@ -47,12 +47,12 @@ import numpy as np
 # %% {Node_parameters}
 class Parameters(NodeParameters):
 
-    qubits: Optional[List[str]] = None #["q1","q2","q3","q4"] #None
+    qubits: Optional[List[str]] = ["q1"]#None #["q1","q2","q3","q4"] #None
     num_averages: int = 300
     operation: str = "saturation"
-    operation_amplitude_factor: Optional[float] = 0.1 #0.004, 0.0004
+    operation_amplitude_factor: Optional[float] = 0.01 #0.004, 0.0004
     operation_len_in_ns: Optional[int] = None
-    frequency_span_in_mhz: float = 150 #200, 4, 800
+    frequency_span_in_mhz: float = 800 #200, 4, 800
     frequency_step_in_mhz: float = 0.4 #0.25, 0.01
     flux_point_joint_or_independent: Literal["joint", "independent"] = "independent"
     target_peak_width: Optional[float] = 1e6 #1e6
@@ -63,7 +63,7 @@ class Parameters(NodeParameters):
     multiplexed: bool = False
 
 
-node = QualibrationNode(name="03a_Qubit_Spectroscopy", parameters=Parameters())
+node = QualibrationNode(name="RSwap_Spectroscopy", parameters=Parameters())
 
 
 # %% {Initialize_QuAM_and_QOP}
@@ -137,6 +137,12 @@ with program() as qubit_spec:
                     amplitude_scale=operation_amp,
                     duration=duration,
                 )
+                qubit.align()
+
+                # # Play the Rswap
+                qubit.z.wait(20)
+                qubit.z.play("r_swap")
+                qubit.z.wait(20)
                 qubit.align()
 
                 # readout the resonator
@@ -295,7 +301,7 @@ if not node.parameters.simulate:
     node.results["figure"] = grid.fig
 
     # # %% {Update_state}
-    # if node.parameters.load_data_id is None:
+    if node.parameters.load_data_id is None:
     #     with node.record_state_updates():
     #         for q in qubits:
     #             if not np.isnan(result.sel(qubit=q.name).position.values):
@@ -327,13 +333,12 @@ if not node.parameters.simulate:
     #                         q.xy.operations["x180"].amplitude = factor_pi * used_amp
     #                     elif factor_pi * used_amp >= limits.max_x180_wf_amplitude:
     #                         q.xy.operations["x180"].amplitude = limits.max_x180_wf_amplitude
-    #     node.results["ds"] = ds
+        node.results["ds"] = ds
 
-    #     # %% {Save_results}
-    #     node.outcomes = {q.name: "successful" for q in qubits}
-    #     node.results["initial_parameters"] = node.parameters.model_dump()
-    #     node.machine = machine
-    #     node.save()
-
+        # %% {Save_results}
+        node.outcomes = {q.name: "successful" for q in qubits}
+        node.results["initial_parameters"] = node.parameters.model_dump()
+        node.machine = machine
+        node.save()
 
 # %%
