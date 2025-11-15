@@ -85,6 +85,7 @@ with program() as ramsey:
     for multiplexed_qubits in qubits.batch():
         for qubit in multiplexed_qubits.values():
             machine.set_all_fluxes(flux_point, target=qubit)
+            if "c" in qubit.id: qubit.z.set_dc_offset(qubit.z.joint_offset) # for coupler-test case
 
         with for_(n, 0, n < n_avg, n + 1):
             save(n, n_st)
@@ -108,14 +109,16 @@ with program() as ramsey:
                         qubit.xy.play("x90")
                         qubit.align()
 
+                    align()
+
+                    for i, qubit in multiplexed_qubits.items():
                         if hasattr(qubit.extras, "reader_qubit"):
                             qubit = qubit.extras.reader_qubit
                             qubit.z.wait(20)
                             qubit.z.play("r_swap")
                             qubit.z.wait(20)
-                    align()
+                            qubit.align()
 
-                    for i, qubit in multiplexed_qubits.items():
                         if node.parameters.use_state_discrimination:
                             readout_state(qubit, state[i])
                             save(state[i], state_st[i])
