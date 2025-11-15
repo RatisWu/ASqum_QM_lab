@@ -113,11 +113,7 @@ with program() as ramsey:
 
                     for i, qubit in multiplexed_qubits.items():
                         if hasattr(qubit.extras, "reader_qubit"):
-                            qubit = qubit.extras.reader_qubit
-                            qubit.z.wait(20)
-                            qubit.z.play("r_swap")
-                            qubit.z.wait(20)
-                            qubit.align()
+                            continue
 
                         if node.parameters.use_state_discrimination:
                             readout_state(qubit, state[i])
@@ -127,6 +123,24 @@ with program() as ramsey:
                             save(I[i], I_st[i])
                             save(Q[i], Q_st[i])
                     align()
+
+                    # Multiplex not support for coupler readout
+                    for i, qubit in multiplexed_qubits.items():
+                        if hasattr(qubit.extras, "reader_qubit"):
+                            align()
+                            qubit.extras.reader_qubit.z.wait(20)
+                            qubit.extras.reader_qubit.z.play("r_swap")
+                            qubit.extras.reader_qubit.z.wait(20)
+                            align()
+
+                            if node.parameters.use_state_discrimination:
+                                readout_state(qubit, state[i])
+                                save(state[i], state_st[i])
+                            else:
+                                qubit.resonator.measure("readout", qua_vars=(I[i], Q[i]))
+                                save(I[i], I_st[i])
+                                save(Q[i], Q_st[i])
+                    
 
                     if not node.parameters.simulate:
                         for i, qubit in multiplexed_qubits.items():

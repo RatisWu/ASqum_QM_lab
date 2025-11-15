@@ -125,11 +125,11 @@ with program() as t1:
                 qubit.align()
 
                 if hasattr(qubit.extras, "reader_qubit"):
-                    qubit = qubit.extras.reader_qubit
-                    qubit.z.wait(20)
-                    qubit.z.play("r_swap")
-                    qubit.z.wait(20)
-                    qubit.align()
+                    align()
+                    qubit.extras.reader_qubit.z.wait(20)
+                    qubit.extras.reader_qubit.z.play("r_swap")
+                    qubit.extras.reader_qubit.z.wait(20)
+                    align()
                 # Measure the state of the resonators
                 if node.parameters.use_state_discrimination:
                     readout_state(qubit, state[i])
