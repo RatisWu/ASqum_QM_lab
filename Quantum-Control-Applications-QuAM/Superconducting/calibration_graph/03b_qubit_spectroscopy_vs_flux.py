@@ -144,6 +144,12 @@ with program() as multi_qubit_spec_vs_flux:
                         duration=duration,
                     )
                     qubit.align()
+                    if hasattr(qubit.extras, "reader_qubit"):
+                        qubit = qubit.extras.reader_qubit
+                        qubit.z.wait(20)
+                        qubit.z.play("r_swap")
+                        qubit.z.wait(20)
+                        qubit.align()
                     # QUA macro to read the state of the active resonators
                     qubit.resonator.measure("readout", qua_vars=(I[i], Q[i]))
                     # save data

@@ -139,6 +139,12 @@ with program() as power_rabi:
                     with for_(count, 0, count < npi, count + 1):
                         qubit.xy.play(operation, amplitude_scale=a)
                     qubit.align()
+                    if hasattr(qubit.extras, "reader_qubit"):
+                        qubit = qubit.extras.reader_qubit
+                        qubit.z.wait(20)
+                        qubit.z.play("r_swap")
+                        qubit.z.wait(20)
+                        qubit.align()
                     qubit.resonator.measure("readout", qua_vars=(I[i], Q[i]))
                     if state_discrimination:
                         assign(state[i], I[i] > qubit.resonator.operations["readout"].threshold)

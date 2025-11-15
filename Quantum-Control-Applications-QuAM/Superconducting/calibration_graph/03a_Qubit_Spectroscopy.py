@@ -156,6 +156,12 @@ with program() as qubit_spec:
                 )
                 qubit.align()
 
+                if hasattr(qubit.extras, "reader_qubit"):
+                    qubit = qubit.extras.reader_qubit
+                    qubit.z.wait(20)
+                    qubit.z.play("r_swap")
+                    qubit.z.wait(20)
+                    qubit.align()
                 # readout the resonator
                 qubit.resonator.measure("readout", qua_vars=(I[i], Q[i]))
                 # Wait for the qubit to decay to the ground state

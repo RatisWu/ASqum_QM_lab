@@ -91,3 +91,23 @@ class SNZPulse(Pulse):
         waveform += [0.0] * (self.length - len(waveform))
 
         return waveform
+    
+@quam_dataclass
+class RampPulse(Pulse):
+    """Ramp Pulse QUAM component, for RampSwap.
+
+    Args:
+        length (int): The total length of the pulse in samples.
+        phi0_voltage (float): The phi0_voltage of the SQUID, phi0_voltage / 2 will bring the qubit to minimum frequency.
+    """
+
+    phi0_voltage: float = None
+    non_adiabatic_first: bool = False
+
+    def waveform_function(self):
+        if self.non_adiabatic_first:
+            waveform = np.linspace(self.phi0_voltage / 2, 0, self.length)
+        else:
+            waveform = np.linspace(0, self.phi0_voltage / 2, self.length)
+
+        return waveform

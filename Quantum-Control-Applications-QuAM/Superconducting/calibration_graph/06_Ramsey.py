@@ -106,6 +106,13 @@ with program() as ramsey:
                         qubit.xy.wait(idle_time)
                         qubit.xy.frame_rotation_2pi(virtual_detuning_phases[i])
                         qubit.xy.play("x90")
+                        qubit.align()
+
+                        if hasattr(qubit.extras, "reader_qubit"):
+                            qubit = qubit.extras.reader_qubit
+                            qubit.z.wait(20)
+                            qubit.z.play("r_swap")
+                            qubit.z.wait(20)
                     align()
 
                     for i, qubit in multiplexed_qubits.items():
