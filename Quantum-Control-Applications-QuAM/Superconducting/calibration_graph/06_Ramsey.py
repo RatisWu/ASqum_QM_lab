@@ -107,8 +107,6 @@ with program() as ramsey:
                         qubit.xy.wait(idle_time)
                         qubit.xy.frame_rotation_2pi(virtual_detuning_phases[i])
                         qubit.xy.play("x90")
-                        qubit.align()
-
                     align()
 
                     for i, qubit in multiplexed_qubits.items():
