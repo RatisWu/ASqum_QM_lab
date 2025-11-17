@@ -341,10 +341,11 @@ if not node.parameters.simulate:
                         factor_cw = float(target_peak_width / result.sel(qubit=q.name).width.values)
                         factor_pi = np.pi / (result.sel(qubit=q.name).width.values * Pi_length * 1e-9)
                         limits = instrument_limits(q.xy)
-                        if factor_cw * used_amp / operation_amp < limits.max_wf_amplitude:
-                            q.xy.operations["saturation"].amplitude = factor_cw * used_amp / operation_amp
-                        else:
-                            q.xy.operations["saturation"].amplitude = limits.max_wf_amplitude
+                        # # Do Not update satruration operation, committed by Ratis
+                        # if factor_cw * used_amp / operation_amp < limits.max_wf_amplitude:
+                        #     q.xy.operations["saturation"].amplitude = factor_cw * used_amp / operation_amp
+                        # else:
+                        #     q.xy.operations["saturation"].amplitude = limits.max_wf_amplitude
 
                         if factor_pi * used_amp < limits.max_x180_wf_amplitude:
                             q.xy.operations["x180"].amplitude = factor_pi * used_amp
