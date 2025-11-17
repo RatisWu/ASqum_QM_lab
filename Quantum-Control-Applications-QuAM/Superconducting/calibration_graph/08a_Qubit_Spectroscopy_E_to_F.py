@@ -115,6 +115,8 @@ with program() as qubit_spec:
         else:
             machine.apply_all_flux_to_zero()
 
+        if "c" in qubit.id: qubit.z.set_dc_offset(qubit.z.joint_offset) # for coupler-test case
+
         # Wait for the flux bias to settle
         for qb in qubits:
             wait(1000, qb.z.name)
@@ -140,6 +142,13 @@ with program() as qubit_spec:
                     duration=operation_len,
                 )
                 align(qubit.xy.name, qubit.resonator.name)
+
+                if hasattr(qubit.extras, "reader_qubit"):
+                    align()
+                    qubit.extras.reader_qubit.z.wait(20)
+                    qubit.extras.reader_qubit.z.play("r_swap")
+                    qubit.extras.reader_qubit.z.wait(20)
+                    align()
                 # readout the resonator
                 qubit.resonator.measure("readout", qua_vars=(I[i], Q[i]))
                 # Wait for the qubit to decay to the ground state

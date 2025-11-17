@@ -96,6 +96,8 @@ with program() as t1:
             machine.apply_all_flux_to_joint_idle()
         else:
             machine.apply_all_flux_to_zero()
+        
+        if "c" in qubit.id: qubit.z.set_dc_offset(qubit.z.joint_offset) # for coupler-test case
 
         # Wait for the flux bias to settle
         for qb in qubits:
@@ -128,6 +130,12 @@ with program() as t1:
                 qubit.xy.play("-x90")
                 qubit.align()
                 
+                if hasattr(qubit.extras, "reader_qubit"):
+                    align()
+                    qubit.extras.reader_qubit.z.wait(20)
+                    qubit.extras.reader_qubit.z.play("r_swap")
+                    qubit.extras.reader_qubit.z.wait(20)
+                    align()
                 # Measure the state of the resonators
                 if node.parameters.use_state_discrimination:
                     readout_state(qubit, state[i])
