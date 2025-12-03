@@ -55,21 +55,23 @@ from quam_libs.components.gates.two_qubit_gates import CZGate
 from quam_libs.lib.pulses import FluxPulse
 
 # %% {Node_parameters}
-qubit_pair_indexes = [4]  # The indexes of the qubit pair to calibrate
+qubit_pair_indexes = [2]  # The indexes of the qubit pair to calibrate
 class Parameters(NodeParameters):
 
     qubit_pairs: Optional[List[str]] = ["coupler_q%s_q%s"%(i,i+1) for i in qubit_pair_indexes]
-    num_averages: int = 1000
+    num_averages: int = 100
     flux_point_joint_or_independent: Literal["joint", "independent"] = "joint"
     reset_type: Literal['active', 'thermal'] = "active"
     simulate: bool = False
     timeout: int = 100
-    amp_range : float = 0.060
-    amp_step : float = 0.0005
+    amp_range : float = 0.2
+    amp_step : float = 0.002
     num_frames: int = 10
     load_data_id: Optional[int] = None # 92417 
     plot_raw : bool = False
     measure_leak : bool = True
+    operation: Literal["Cz_flattop", "Cz_unipolar", "Cz_bipolar"] = "Cz_unipolar"
+    """Type of CZ operation to perform. Options are 'cz_flattop', 'cz_unipolar', or 'cz_bipolar'. Default is 'cz_unipolar'."""
 
 
 node = QualibrationNode(
@@ -117,6 +119,7 @@ flux_point = node.parameters.flux_point_joint_or_independent  # 'independent' or
 # Loop parameters
 amplitudes = np.arange(1-node.parameters.amp_range, 1+node.parameters.amp_range, node.parameters.amp_step)
 frames = np.arange(0, 1, 1/node.parameters.num_frames)
+operation_name = node.parameters.operation
 
 with program() as CPhase_Oscillations:
     amp = declare(fixed)   
@@ -168,7 +171,7 @@ with program() as CPhase_Oscillations:
                         qp.align()
 
                         #play the CZ gate
-                        qp.gates['Cz'].execute(amplitude_scale = amp)
+                        qp.gates[operation_name].execute(amplitude_scale = amp)
                         
                         #rotate the frame
                         frame_rotation_2pi(frame, qp.qubit_target.xy.name)
@@ -192,12 +195,21 @@ with program() as CPhase_Oscillations:
             state_st_control[i].buffer(2).buffer(len(frames)).buffer(len(amplitudes)).buffer(n_avg).save(f"state_control{i + 1}")
             state_st_target[i].buffer(2).buffer(len(frames)).buffer(len(amplitudes)).buffer(n_avg).save(f"state_target{i + 1}")
 
-# %% {Simulate_or_execute}
+# %% {Simulate_or_execute
 if node.parameters.simulate:
     # Simulates the QUA program for the specified duration
-    simulation_config = SimulationConfig(duration=10_000)  # In clock cycles = 4ns
+    simulation_config = SimulationConfig(duration=10_000//4)  # In clock cycles = 4ns
     job = qmm.simulate(config, CPhase_Oscillations, simulation_config)
-    job.get_simulated_samples().con1.plot()
+    samples = job.get_simulated_samples()
+    fig, ax = plt.subplots(nrows=len(samples.keys()), sharex=True)
+
+    for i, con in enumerate(samples.keys()):
+        plt.subplot(len(samples.keys()), 1, i + 1)
+        samples[con].plot()
+        plt.title(con)
+    plt.tight_layout()
+    wf_report = job.get_simulated_waveform_report()
+    wf_report.create_plot(samples, plot=True, save_path=None)
     node.results = {"figure": plt.gcf()}
     node.machine = machine
     node.save()
@@ -341,9 +353,7 @@ if not node.parameters.simulate:
     if node.parameters.load_data_id is None:
         with node.record_state_updates():
             for qp in qubit_pairs:
-                qp.gates['Cz'].flux_pulse_control.amplitude = optimal_amps[qp.name]
-
-                
+                qp.gates[operation_name].flux_pulse_control.amplitude = optimal_amps[qp.name]          
 # %% {Save_results}
 if not node.parameters.simulate:
     node.outcomes = {qp.name: "successful" for qp in qubit_pairs}
