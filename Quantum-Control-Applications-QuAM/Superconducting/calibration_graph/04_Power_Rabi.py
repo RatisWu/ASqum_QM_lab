@@ -257,7 +257,7 @@ if not node.parameters.simulate:
             factor = float(1.0 * (np.pi - phi_fit) / (2 * np.pi * f_fit))
             new_pi_amp = q.xy.operations[operation].amplitude * factor
             limits = instrument_limits(q.xy)
-            if new_pi_amp < limits.max_x180_wf_amplitude:
+            if new_pi_amp < 1.0: #limits.max_x180_wf_amplitude:
                 print(f"amplitude for Pi pulse is modified by a factor of {factor:.2f}")
                 print(f"new amplitude is {1e3 * new_pi_amp:.2f} {limits.units} \n")
                 fit_results[q.name]["Pi_amplitude"] = new_pi_amp
@@ -282,7 +282,7 @@ if not node.parameters.simulate:
             new_pi_amp = float(ds.abs_amp.sel(qubit=q.name)[data_max_idx.sel(qubit=q.name)].data)
             fit_results[q.name] = {}
             limits = instrument_limits(q.xy)
-            if new_pi_amp < limits.max_x180_wf_amplitude:
+            if new_pi_amp < 1.0: #limits.max_x180_wf_amplitude:
                 fit_results[q.name]["Pi_amplitude"] = new_pi_amp
                 print(
                     f"amplitude for Pi pulse is modified by a factor of {I_n.idxmax(dim='amp').sel(qubit = q.name):.2f}"
