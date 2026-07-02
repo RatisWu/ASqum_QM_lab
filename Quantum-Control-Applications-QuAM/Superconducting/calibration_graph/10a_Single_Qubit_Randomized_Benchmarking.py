@@ -74,7 +74,7 @@ class Parameters(
     num_averages: int = 50
     max_circuit_depth: int = 800  # Maximum circuit depth
     delta_clifford: int = 40
-    seed: int = None
+    seed: Optional[int] = None
     reset_type_thermal_or_active: Literal["thermal", "active", "active_gef"] =  "active"
     flux_point_joint_or_independent: Literal["joint", "independent"] = "independent"
     simulate: bool = False
@@ -91,6 +91,7 @@ node = QualibrationNode(name="10a_Single_Qubit_Randomized_Benchmarking", paramet
 u = unit(coerce_to_integer=True)
 # Instantiate the QuAM class from the state file
 machine = QuAM.load()
+node.machine = machine
 # Generate the OPX and Octave configurations
 
 config = machine.generate_config()
@@ -425,7 +426,6 @@ if node.parameters.simulate:
         plt.title(con)
     plt.tight_layout()
     node.results["figure"] = plt.gcf()
-    node.machine = machine
     node.save()
 
 elif node.parameters.load_data_id is None:
@@ -576,8 +576,12 @@ if not node.parameters.simulate:
     if not node.parameters.simulate and successful_fit_qubits:
         with node.record_state_updates():
             for q in successful_fit_qubits:
-                q.extras["EPG"] = EPG.sel(qubit=q.name).item()
-                q.extras["EPC"] = EPC.sel(qubit=q.name).item()
+                if node.parameters.multiplexed:
+                    q.extras["EPG"] = EPG.sel(qubit=q.name).item()
+                    q.extras["EPC"] = EPC.sel(qubit=q.name).item()
+                else:
+                    q.extras["iso_EPG"] = EPG.sel(qubit=q.name).item()
+                    q.extras["iso_EPC"] = EPC.sel(qubit=q.name).item()
                 
     if not node.parameters.simulate:
         node.outcomes = {
@@ -589,7 +593,6 @@ if not node.parameters.simulate:
             for q in qubits
         }
         node.results["initial_parameters"] = node.parameters.model_dump()
-        node.machine = machine
         node.save()
 
 

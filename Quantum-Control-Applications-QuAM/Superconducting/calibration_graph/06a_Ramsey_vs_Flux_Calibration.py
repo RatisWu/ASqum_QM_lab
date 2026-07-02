@@ -66,6 +66,7 @@ node = QualibrationNode(name="06a_Ramsey_vs_Flux_Calibration", parameters=Parame
 u = unit(coerce_to_integer=True)
 # Instantiate the QuAM class from the state file
 machine = QuAM.load()
+node.machine = machine
 # Generate the OPX and Octave configurations
 config = machine.generate_config()
 # Open Communication with the QOP
@@ -171,7 +172,6 @@ if node.parameters.simulate:
     plt.tight_layout()
     # Save the figure
     node.results = {"figure": plt.gcf()}
-    node.machine = machine
     node.save()
 
 elif node.parameters.load_data_id is None:
@@ -300,11 +300,13 @@ if not node.parameters.simulate:
                 else:
                     raise RuntimeError(f"unknown flux_point")
                 qubit.freq_vs_flux_01_quad_term = float(a[qubit.name])
+                qubit.extras["sweetspot_freq"] = (
+                    qubit.xy.intermediate_frequency + qubit.xy.opx_output.upconverter_frequency
+                )
 
         # %% {Save_results}
         node.outcomes = {q.name: "successful" for q in qubits}
         node.results["initial_parameters"] = node.parameters.model_dump()
-        node.machine = machine
         node.save()
 
 # %%
