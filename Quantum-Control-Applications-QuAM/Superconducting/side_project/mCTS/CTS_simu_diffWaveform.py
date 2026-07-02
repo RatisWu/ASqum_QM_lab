@@ -14,7 +14,7 @@ plt.rcParams.update({
 # 1. 基礎參數設定 (Basics & Specs)
 # ==========================================
 fs = 1                  # 取樣率 2 GHz (每 0.5 ns 一個點)
-t_duration = 20         # 邏輯閘時間 Gate time (ns)       
+t_duration = 15         # 邏輯閘時間 Gate time (ns)       
 zero_padding = 300      # 前後零填充長度 (ns)
 gaussian_sigma_factor = 4
 drag_coef = 0.5
@@ -45,13 +45,13 @@ sigma = N_core / gaussian_sigma_factor
 amp_factor = 1 / (1 - np.exp(-((t_duration/2) ** 2) / (2 * sigma**2)))
 i_gauss = amp_factor * amplitude * (np.exp(-((t_core - (t_duration/2)) ** 2) / (2 * sigma**2)) - np.exp(-((t_duration/2) ** 2) / (2 * sigma**2)))
 q_gauss = amp_factor * amplitude * (-(t_core - t_duration/2) / (sigma**2)) * np.exp(-((t_core - t_duration/2) ** 2) / (2 * sigma**2))
-pulses["Gaussian"] = finalize_pulse(i_gauss, q_gauss)
+# pulses["Gaussian"] = finalize_pulse(i_gauss, q_gauss)
 
 # C: 4-Term Blackman-Harris
 a = [0.35875, 0.48829, 0.14128, 0.01168]
 i_bh = amplitude * (a[0] - a[1]*np.cos(2*np.pi*t_core/t_duration) + a[2]*np.cos(4*np.pi*t_core/t_duration) - a[3]*np.cos(6*np.pi*t_core/t_duration))
 q_bh = amplitude * ((2*np.pi/t_duration) * (a[1]*np.sin(2*np.pi*t_core/t_duration) - 2*a[2]*np.sin(4*np.pi*t_core/t_duration) + 3*a[3]*np.sin(6*np.pi*t_core/t_duration)))
-pulses["Blackman-Harris"] = finalize_pulse(i_bh, q_bh)
+# pulses["Blackman-Harris"] = finalize_pulse(i_bh, q_bh)
 
 # D: Cosine Flattop (精簡平滑版本)
 flat_ratio = 0.5
@@ -63,10 +63,10 @@ i_flat = np.concatenate([
     np.ones(flat_len),
     0.5 * (1 + np.cos(np.pi * np.arange(fall_len) / fall_len))
 ]) * amplitude
-pulses["Cosine Flattop"] = finalize_pulse(i_flat, np.zeros_like(i_flat))
+# pulses["Cosine Flattop"] = finalize_pulse(i_flat, np.zeros_like(i_flat))
 
 # E: Square Wave
-pulses["Square"] = finalize_pulse(np.ones(N_core) * amplitude, np.zeros(N_core))
+# pulses["Square"] = finalize_pulse(np.ones(N_core) * amplitude, np.zeros(N_core))
 
 # ==========================================
 # 3. 畫圖與傅立葉變換 (Plotting & FFT)
@@ -104,8 +104,8 @@ axes[1].set_xlabel("Frequency (MHz)")
 axes[1].set_ylabel("Amplitude [dB]")
 axes[1].set_ylim(-100, 10)
 axes[1].set_xlim(-300, 300)
-axes[1].axvline(-180, color='gray', linestyle='--', alpha=0.7)  # 串擾抑制參考線
-axes[1].axvline(180, color='gray', linestyle='--', alpha=0.7)
+axes[1].axvline(-168, color='gray', linestyle='--', alpha=0.7)  # 串擾抑制參考線
+# axes[1].axvline(180, color='gray', linestyle='--', alpha=0.7)
 axes[1].grid(True, alpha=0.3)
 axes[1].legend()
 

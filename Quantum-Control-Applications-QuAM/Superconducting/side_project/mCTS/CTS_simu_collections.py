@@ -516,7 +516,7 @@ class WaveformEngineer:
     def compare_all_methods(self, optimizer: str = 'L-BFGS-B'):
         """ Compare all the methods """
         engines = {}
-
+        self.waveforms = {}
         # 1. 依序執行三種演算法的最佳化
         for cls in self.method_log:
             m = cls.__name__.replace('CTS_', '')
@@ -555,7 +555,7 @@ class WaveformEngineer:
 
             wave = eng.output_waveform()
             I_arr, Q_arr = np.array(wave['waveform_I']), np.array(wave['waveform_Q'])
-
+            self.waveforms[m_name] = {"I": wave['waveform_I'], "Q":wave['waveform_Q']}
             # --- 左上：I 通道 ---
             line_I, = ax_I.plot(eng.t, I_arr, color=current_color, linestyle='-',alpha=0.6)
             ax_I.scatter(eng.t, I_arr, color=current_color)
@@ -619,13 +619,14 @@ class WaveformEngineer:
         plt.show()
 
 if __name__ == '__main__':
-    tg = 20
+    tg = 24
     aiming_sup_power_dB = -45
     # avoid_freqs = np.array([-90, 104, 97, -132, -116, -100, 122, 147, -153])
     # avoid_freqs =  np.array([-45, 104, 73, -132, -116, -100, 122, 147, -153])
     # avoid_freqs =  np.array([-40, 104, 73, -69, -116, -100, 122, 147, -183])
-    avoid_freqs = np.array([-180, 60, -120])
-    method = 'dCRAB'
+    # avoid_freqs = np.array([-180, 60, -120])
+    avoid_freqs = np.array([50])
+    method = 'GRAPE'
     optimizer = 'L-BFGS-B'
 
 
@@ -634,3 +635,4 @@ if __name__ == '__main__':
 
 
     WE.compare_all_methods(optimizer)
+    print(WE.waveforms[method])
