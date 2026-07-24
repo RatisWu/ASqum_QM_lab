@@ -36,7 +36,7 @@ from qualibrate import QualibrationNode, NodeParameters
 from quam_libs.components import QuAM
 from quam_libs.macros import readout_state, active_reset_simple
 from quam_libs.lib.plot_utils import QubitPairGrid, grid_iter, grid_pair_names
-from quam_libs.lib.save_utils import fetch_results_as_xarray, restore_load_data_id, resolve_qubit_pairs_from_node
+from quam_libs.lib.save_utils import fetch_results_as_xarray, load_dataset
 from qualang_tools.results import progress_counter, fetching_tool
 from qualang_tools.loops import from_array
 from qualang_tools.multi_user import qm_session
@@ -55,25 +55,25 @@ from quam_libs.components.gates.two_qubit_gates import CZGate
 from quam_libs.lib.pulses import FluxPulse
 
 # %% {Node_parameters}
-qubit_pair_indexes = [1]  # The indexes of the qubit pair to calibrate
+qubit_pair_indexes = [4]  # The indexes of the qubit pair to calibrate
 class Parameters(NodeParameters):
 
     qubit_pairs: Optional[List[str]] = ["coupler_q%s_q%s"%(i,i+1) for i in qubit_pair_indexes]
-    num_averages: int = 500
+    num_averages: int = 200
     flux_point_joint_or_independent: Literal["joint", "independent"] = "joint"
     reset_type: Literal['active', 'thermal'] = "active"
-    simulate: bool = False
+    simulate: bool = True
     timeout: int = 100
-    amp_range : float = 0.05#0.12
-    amp_step : float = 0.002
-    num_frames: int = 13
-    num_repeats: int = 12 #12
+    amp_range : float = 0.1#0.12
+    amp_step : float = 0.004
+    num_frames: int = 20
+    num_repeats: int = 20 #12
     load_data_id: Optional[int] = None
     measure_leak : bool = True
 
 
 node = QualibrationNode(
-    name="32bx_cz_phase_coupler_error_amp", parameters=Parameters()
+    name="32bx_Adiabatic_cz_phase_coupler_error_amp", parameters=Parameters()
 )
 assert not (node.parameters.simulate and node.parameters.load_data_id is not None), "If simulate is True, load_data_id must be None, and vice versa."
 
@@ -82,7 +82,6 @@ assert not (node.parameters.simulate and node.parameters.load_data_id is not Non
 u = unit(coerce_to_integer=True)
 # Instantiate the QuAM class from the state file
 machine = QuAM.load()
-node.machine = machine
 
 # Get the relevant QuAM components
 if node.parameters.qubit_pairs is None or node.parameters.qubit_pairs == "":
@@ -135,16 +134,15 @@ with program() as CPhase_Oscillations:
     count = declare(int)
     
     for i, qp in enumerate(qubit_pairs):
-        if not node.parameters.simulate:
-            # Bring the active qubits to the minimum frequency point
-            if flux_point == "independent":
-                machine.apply_all_flux_to_min()
-                # qp.apply_mutual_flux_point()
-            elif flux_point == "joint":
-                machine.apply_all_flux_to_joint_idle()
-            else:
-                machine.apply_all_flux_to_zero()
-            wait(1000)
+        # Bring the active qubits to the minimum frequency point
+        if flux_point == "independent":
+            machine.apply_all_flux_to_min()
+            # qp.apply_mutual_flux_point()
+        elif flux_point == "joint":
+            machine.apply_all_flux_to_joint_idle()
+        else:
+            machine.apply_all_flux_to_zero()
+        wait(1000)
 
         with for_(n, 0, n < n_avg, n + 1):
             save(n, n_st)         
@@ -224,12 +222,7 @@ if not node.parameters.simulate:
         # Fetch the data from the OPX and convert it into a xarray with corresponding axes (from most inner to outer loop)
         ds = fetch_results_as_xarray(job.result_handles, qubit_pairs, {"repeats": repeats, "control_axis": [0,1], "frame": frames, "amp": amplitudes})
     else:
-        load_data_id = node.parameters.load_data_id
-        node = node.load_from_id(load_data_id)
-        ds = node.results["ds"]
-        restore_load_data_id(node, load_data_id)
-        machine = node.machine
-        qubit_pairs = resolve_qubit_pairs_from_node(machine, node)
+        ds, machine = load_dataset(node.parameters.load_data_id)
 
         
     node.results = {"ds": ds}
@@ -295,8 +288,8 @@ if not node.parameters.simulate:
         for row, qubit_pair in enumerate(qubit_pair_names):
             ds_qp = ds.sel(qubit=qubit_pair)
             amp_coords = {"coupler_amp_V": ds_qp.amp_full}
-            state_1 = ds_qp.state_control.mean(dim=("frame", "control_axis")).assign_coords(amp_coords)
-            state_0 = (1 - ds_qp.state_control).mean(dim=("frame", "control_axis")).assign_coords(amp_coords)
+            state_0 = ds_qp.state_control.sel(control_axis=0).mean(dim="frame").assign_coords(amp_coords)
+            state_1 = ds_qp.state_control.sel(control_axis=1).mean(dim="frame").assign_coords(amp_coords)
 
             for col, (data_to_plot, label) in enumerate([(state_0, "|0>"), (state_1, "|1>")]):
                 ax = axes[row, col]

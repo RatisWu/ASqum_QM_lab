@@ -36,7 +36,7 @@ from qualibrate import QualibrationNode, NodeParameters
 from quam_libs.components import QuAM
 from quam_libs.macros import readout_state, active_reset_simple
 from quam_libs.lib.plot_utils import QubitPairGrid, grid_iter, grid_pair_names
-from quam_libs.lib.save_utils import fetch_results_as_xarray, restore_load_data_id, resolve_qubit_pairs_from_node
+from quam_libs.lib.save_utils import fetch_results_as_xarray, load_dataset
 from qualang_tools.results import progress_counter, fetching_tool
 from qualang_tools.loops import from_array
 from qualang_tools.multi_user import qm_session
@@ -55,25 +55,25 @@ from quam_libs.components.gates.two_qubit_gates import CZGate
 from quam_libs.lib.pulses import FluxPulse
 
 # %% {Node_parameters}
-qubit_pair_indexes = [1]  # The indexes of the qubit pair to calibrate
+qubit_pair_indexes = [4]  # The indexes of the qubit pair to calibrate
 class Parameters(NodeParameters):
 
     qubit_pairs: Optional[List[str]] = ["coupler_q%s_q%s"%(i,i+1) for i in qubit_pair_indexes]
     num_averages: int = 500
     flux_point_joint_or_independent: Literal["joint", "independent"] = "joint"
     reset_type: Literal['active', 'thermal'] = "active"
-    simulate: bool = False
+    simulate: bool = True
     timeout: int = 100
-    amp_range : float = 0.05#0.12
-    amp_step : float = 0.002
-    num_frames: int = 13
-    num_repeats: int = 12 #12
+    amp_range : float = 0.1#0.12
+    amp_step : float = 0.004
+    num_frames: int = 20
+    num_repeats: int = 20 #12
     load_data_id: Optional[int] = None
     measure_leak : bool = True
 
 
 node = QualibrationNode(
-    name="32bx_cz_phase_coupler_error_amp", parameters=Parameters()
+    name="32bx_Adiabatic_cz_phase_coupler_error_amp", parameters=Parameters()
 )
 assert not (node.parameters.simulate and node.parameters.load_data_id is not None), "If simulate is True, load_data_id must be None, and vice versa."
 
@@ -82,7 +82,6 @@ assert not (node.parameters.simulate and node.parameters.load_data_id is not Non
 u = unit(coerce_to_integer=True)
 # Instantiate the QuAM class from the state file
 machine = QuAM.load()
-node.machine = machine
 
 # Get the relevant QuAM components
 if node.parameters.qubit_pairs is None or node.parameters.qubit_pairs == "":
@@ -135,16 +134,15 @@ with program() as CPhase_Oscillations:
     count = declare(int)
     
     for i, qp in enumerate(qubit_pairs):
-        if not node.parameters.simulate:
-            # Bring the active qubits to the minimum frequency point
-            if flux_point == "independent":
-                machine.apply_all_flux_to_min()
-                # qp.apply_mutual_flux_point()
-            elif flux_point == "joint":
-                machine.apply_all_flux_to_joint_idle()
-            else:
-                machine.apply_all_flux_to_zero()
-            wait(1000)
+        # Bring the active qubits to the minimum frequency point
+        if flux_point == "independent":
+            machine.apply_all_flux_to_min()
+            # qp.apply_mutual_flux_point()
+        elif flux_point == "joint":
+            machine.apply_all_flux_to_joint_idle()
+        else:
+            machine.apply_all_flux_to_zero()
+        wait(1000)
 
         with for_(n, 0, n < n_avg, n + 1):
             save(n, n_st)         
@@ -201,11 +199,20 @@ with program() as CPhase_Oscillations:
 # %% {Simulate_or_execute}
 if node.parameters.simulate:
     # Simulates the QUA program for the specified duration
-    simulation_config = SimulationConfig(duration=10_000)  # In clock cycles = 4ns
+    # Simulates the QUA program for the specified duration
+    simulation_config = SimulationConfig(duration=30_000//4)  # In clock cycles = 4ns
     job = qmm.simulate(config, CPhase_Oscillations, simulation_config)
-    job.get_simulated_samples().con1.plot()
+    samples = job.get_simulated_samples()
+    fig, ax = plt.subplots(nrows=len(samples.keys()), sharex=True)
+
+    for i, con in enumerate(samples.keys()):
+        plt.subplot(len(samples.keys()), 1, i + 1)
+        samples[con].plot()
+        plt.title(con)
+    plt.tight_layout()
+    wf_report = job.get_simulated_waveform_report()
+    wf_report.create_plot(samples, plot=True, save_path=None)
     node.results = {"figure": plt.gcf()}
-    node.machine = machine
     node.save()
 elif node.parameters.load_data_id is None:
     with qm_session(qmm, config, timeout=node.parameters.timeout ) as qm:
@@ -224,24 +231,11 @@ if not node.parameters.simulate:
         # Fetch the data from the OPX and convert it into a xarray with corresponding axes (from most inner to outer loop)
         ds = fetch_results_as_xarray(job.result_handles, qubit_pairs, {"repeats": repeats, "control_axis": [0,1], "frame": frames, "amp": amplitudes})
     else:
-        load_data_id = node.parameters.load_data_id
-        node = node.load_from_id(load_data_id)
-        ds = node.results["ds"]
-        restore_load_data_id(node, load_data_id)
-        machine = node.machine
-        qubit_pairs = resolve_qubit_pairs_from_node(machine, node)
+        ds, machine = load_dataset(node.parameters.load_data_id)
 
         
     node.results = {"ds": ds}
 
-# %% {Data_analysis}
-if not node.parameters.simulate:
-    def abs_amp(qp, amp):
-        return amp * qp.gates['Cz'].coupler_flux_pulse.amplitude
-
-    ds = ds.assign_coords(
-        {"amp_full": (["qubit", "amp"], np.array([abs_amp(qp, ds.amp) for qp in qubit_pairs]))}
-    )
 # %% Analysis
 if not node.parameters.simulate:
 
@@ -259,12 +253,12 @@ if not node.parameters.simulate:
                                                     fit_data.sel(fit_vals="offset"))})
         phase = fix_oscillation_phi_2pi(fit_data)    
         phase_diff = (phase.sel(control_axis=0)-phase.sel(control_axis=1)) % 1 
-        optimal_amps[qp.name] = phase_diff.amp_full[np.abs(phase_diff-0.5).mean(dim = 'repeats').argmin(dim = 'amp')]
+        optimal_amps[qp.name] = float(phase_diff.amp[np.abs(phase_diff-0.5).mean(dim='repeats').argmin(dim='amp')])
         phase_diffs[qp.name] = phase_diff
 
     # %%
-    (phase_diff-0.5).plot(x = "repeats", y = "amp_full")
-    phase_diff.amp_full[np.abs(phase_diff-0.5).mean(dim = 'repeats').argmin(dim = 'amp')]
+    (phase_diff-0.5).plot(x="repeats", y="amp")
+    phase_diff.amp[np.abs(phase_diff-0.5).mean(dim='repeats').argmin(dim='amp')]
 # %%
 
 # %%
@@ -273,17 +267,16 @@ if not node.parameters.simulate:
     grid = QubitPairGrid(grid_names, qubit_pair_names)
     for ax, qubit_pair in grid_iter(grid):
         
-        data_to_plot = phase_diffs[qubit_pair['qubit']].assign_coords(coupler_amp_V=phase_diffs[qubit_pair['qubit']].amp_full) - 0.5
-        plot = data_to_plot.plot(x="repeats", y="coupler_amp_V", add_colorbar=False)
+        data_to_plot = phase_diffs[qubit_pair['qubit']] - 0.5
+        plot = data_to_plot.plot(x="repeats", y="amp", add_colorbar=False)
         plt.colorbar(plot, ax=ax, orientation='horizontal', pad=0.2, aspect=30, label='Phase')
 
-        cz_gate = machine.qubit_pairs[qubit_pair["qubit"]].gates['Cz']
-        ax.axhline(y=float(optimal_amps[qubit_pair['qubit']]), color='k', linestyle='--', lw=0.62)
-        ax.axhline(y=cz_gate.coupler_flux_pulse.amplitude, color='b', linestyle='--', lw=0.57)
-        ax.set_ylabel('Coupler amplitude [V]')
+        ax.axhline(y=optimal_amps[qubit_pair['qubit']], color='k', linestyle='--', lw=0.62)
+        ax.axhline(y=1.0, color='b', linestyle='--', lw=0.57)
+        ax.set_ylabel('Amplitude scale')
 
         
-    plt.suptitle('Cz phase calibration (coupler amp)', y=0.95)
+    plt.suptitle('Cz phase calibration (relative amp scan)', y=0.95)
     plt.tight_layout()
     plt.show()
     node.results["figure_phase"] = grid.fig
@@ -294,22 +287,20 @@ if not node.parameters.simulate:
         fig, axes = plt.subplots(n_pairs, 2, figsize=(10, 4 * n_pairs), squeeze=False)
         for row, qubit_pair in enumerate(qubit_pair_names):
             ds_qp = ds.sel(qubit=qubit_pair)
-            amp_coords = {"coupler_amp_V": ds_qp.amp_full}
-            state_1 = ds_qp.state_control.mean(dim=("frame", "control_axis")).assign_coords(amp_coords)
-            state_0 = (1 - ds_qp.state_control).mean(dim=("frame", "control_axis")).assign_coords(amp_coords)
+            state_0 = ds_qp.state_control.sel(control_axis=0).mean(dim="frame")
+            state_1 = ds_qp.state_control.sel(control_axis=1).mean(dim="frame")
 
             for col, (data_to_plot, label) in enumerate([(state_0, "|0>"), (state_1, "|1>")]):
                 ax = axes[row, col]
-                plot = data_to_plot.plot(x="repeats", y="coupler_amp_V", ax=ax, add_colorbar=False)
+                plot = data_to_plot.plot(x="repeats", y="amp", ax=ax, add_colorbar=False)
                 plt.colorbar(plot, ax=ax, orientation='horizontal', pad=0.2, aspect=30, label=label)
 
-                cz_gate = machine.qubit_pairs[qubit_pair].gates['Cz']
-                ax.axhline(y=float(optimal_amps[qubit_pair]), color='r', linestyle='--', lw=0.62)
-                ax.axhline(y=cz_gate.coupler_flux_pulse.amplitude, color='b', linestyle='--', lw=0.57)
-                ax.set_ylabel('Coupler amplitude [V]')
+                ax.axhline(y=optimal_amps[qubit_pair], color='r', linestyle='--', lw=0.62)
+                ax.axhline(y=1.0, color='b', linestyle='--', lw=0.57)
+                ax.set_ylabel('Amplitude scale')
                 ax.set_title(f"{qubit_pair} {label}")
 
-        plt.suptitle('Cz phase calibration state (coupler amp)', y=0.98)
+        plt.suptitle('Cz phase calibration state (relative amp scan)', y=0.98)
         plt.tight_layout()
         plt.show()
         node.results['figure_leak'] = fig
@@ -319,7 +310,7 @@ if not node.parameters.simulate:
     if node.parameters.load_data_id is None:
         with node.record_state_updates():
             for qp in qubit_pairs:
-                qp.gates['Cz'].coupler_flux_pulse.amplitude = float(optimal_amps[qp.name].values)
+                qp.gates['Cz'].coupler_flux_pulse.amplitude *= optimal_amps[qp.name]
 
                 
 # %% {Save_results}

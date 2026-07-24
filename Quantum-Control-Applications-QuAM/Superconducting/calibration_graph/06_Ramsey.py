@@ -48,7 +48,7 @@ class Parameters(NodeParameters):
     use_state_discrimination: bool = False
     flux_point_joint_or_independent: Literal["joint", "independent"] = "joint"
     load_data_id: Optional[int] = None
-    multiplexed: bool = True
+    multiplexed: bool = False
     use_waveform_report: bool = True
     simulate: bool = False
     simulation_duration_ns: int = 2500
@@ -92,8 +92,9 @@ with program() as ramsey:
         state_st = [declare_stream() for _ in range(num_qubits)]
 
     for multiplexed_qubits in qubits.batch():
-        for qubit in multiplexed_qubits.values():
-            machine.set_all_fluxes(flux_point, target=qubit)
+        if not node.parameters.simulate:
+            for qubit in multiplexed_qubits.values():
+                machine.set_all_fluxes(flux_point, target=qubit)
 
         with for_(n, 0, n < n_avg, n + 1):
             save(n, n_st)
@@ -108,10 +109,11 @@ with program() as ramsey:
                     align()
 
                     for i, qubit in multiplexed_qubits.items():
-                        if node.parameters.reset_type == "active":
-                            active_reset(qubit, "readout")
-                        else:
-                            qubit.resonator.wait(qubit.thermalization_time * u.ns)
+                        if not node.parameters.simulate:
+                            if node.parameters.reset_type == "active":
+                                active_reset(qubit, "readout")
+                            else:
+                                qubit.resonator.wait(qubit.thermalization_time * u.ns)
                         reset_frame(qubit.xy.name)
                         qubit.align()
                         

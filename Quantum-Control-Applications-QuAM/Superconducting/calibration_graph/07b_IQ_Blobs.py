@@ -92,7 +92,8 @@ with program() as iq_blobs:
     I_e, I_e_st, Q_e, Q_e_st, _, _ = qua_declaration(num_qubits=num_qubits)
 
     for multiplexed_qubits in qubits.batch():
-        machine.set_all_fluxes(flux_point=flux_point, target=list(multiplexed_qubits.values())[0])
+        if not node.parameters.simulate:
+            machine.set_all_fluxes(flux_point=flux_point, target=list(multiplexed_qubits.values())[0])
 
         with for_(n, 0, n < n_runs, n + 1):
             save(n, n_st)
@@ -316,6 +317,7 @@ if not node.parameters.simulate:
                 )
                 if operation_name == "readout":
                     qubit.resonator.confusion_matrix = node.results["results"][qubit.name]["confusion_matrix"].tolist()
+                    qubit.extras["readout_fidelity"] = float(node.results["results"][qubit.name]["fidelity"])
 
         # %% {Save_results}
         node.outcomes = {q.name: "successful" for q in qubits}

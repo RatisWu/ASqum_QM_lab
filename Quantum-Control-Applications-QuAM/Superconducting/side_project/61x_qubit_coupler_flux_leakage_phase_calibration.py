@@ -2,7 +2,7 @@
 from qualibrate import QualibrationNode, NodeParameters
 from quam_libs.components import QuAM
 from quam_libs.macros import active_reset, readout_state, readout_state_gef
-from quam_libs.lib.save_utils import fetch_results_as_xarray, restore_load_data_id, resolve_qubit_pairs_from_node
+from quam_libs.lib.save_utils import fetch_results_as_xarray, load_dataset
 from qualang_tools.results import progress_counter, fetching_tool
 from qualang_tools.loops import from_array
 from qualang_tools.multi_user import qm_session
@@ -34,7 +34,7 @@ State update:
 """
 
 # %% {Node_parameters}
-qubit_pair_indexes = [1]
+qubit_pair_indexes = [4]
 
 
 class Parameters(NodeParameters):
@@ -46,8 +46,8 @@ class Parameters(NodeParameters):
     timeout: int = 200
     load_data_id: Optional[int] = None
 
-    qubit_amp_range: float = 0.05
-    coupler_amp_range: float = 0.1
+    qubit_amp_range: float = 0.1
+    coupler_amp_range: float = 0.2
     qubit_amp_step: float = 0.0025
     coupler_amp_step: float = 0.005
     num_frames: int = 10
@@ -57,7 +57,7 @@ class Parameters(NodeParameters):
 
 
 node = QualibrationNode(
-    name="61y_qubit_coupler_flux_leakage_phase_calibration", parameters=Parameters()
+    name="61x_qubit_coupler_flux_leakage_phase_calibration", parameters=Parameters()
 )
 assert not (
     node.parameters.simulate and node.parameters.load_data_id is not None
@@ -66,7 +66,6 @@ assert not (
 # %% {Initialize_QuAM_and_QOP}
 u = unit(coerce_to_integer=True)
 machine = QuAM.load()
-node.machine = machine
 
 if node.parameters.qubit_pairs is None or node.parameters.qubit_pairs == "":
     qubit_pairs = machine.active_qubit_pairs
@@ -127,14 +126,13 @@ with program() as coupler_leakage_phase_calibration:
             with for_(*from_array(amp_coupler, coupler_amp_scales)):
                 with for_(*from_array(amp_qubit, qubit_amp_scales)):
                     # --- Leakage measurement ---
-                    if not node.parameters.simulate:
-                        if node.parameters.reset_type == "active":
-                            active_reset(qp.qubit_control)
-                            active_reset(qp.qubit_target)
-                            qp.align()
-                        else:
-                            wait(qp.qubit_control.thermalization_time * u.ns)
-                            wait(qp.qubit_target.thermalization_time * u.ns)
+                    if node.parameters.reset_type == "active":
+                        active_reset(qp.qubit_control)
+                        active_reset(qp.qubit_target)
+                        qp.align()
+                    else:
+                        wait(qp.qubit_control.thermalization_time * u.ns)
+                        wait(qp.qubit_target.thermalization_time * u.ns)
                     align()
                     qp.qubit_control.xy.play("x180")
                     qp.qubit_target.xy.play("x180")
@@ -153,14 +151,13 @@ with program() as coupler_leakage_phase_calibration:
                     # --- Phase measurement (Ramsey-style) ---
                     with for_(*from_array(frame, frames)):
                         with for_(*from_array(control_initial, [0, 1])):
-                            if not node.parameters.simulate:
-                                if node.parameters.reset_type == "active":
-                                    active_reset(qp.qubit_control)
-                                    active_reset(qp.qubit_target)
-                                    qp.align()
-                                else:
-                                    wait(qp.qubit_control.thermalization_time * u.ns)
-                                    wait(qp.qubit_target.thermalization_time * u.ns)
+                            if node.parameters.reset_type == "active":
+                                active_reset(qp.qubit_control)
+                                active_reset(qp.qubit_target)
+                                qp.align()
+                            else:
+                                wait(qp.qubit_control.thermalization_time * u.ns)
+                                wait(qp.qubit_target.thermalization_time * u.ns)
                             qp.align()
                             reset_frame(qp.qubit_target.xy.name)
                             reset_frame(qp.qubit_control.xy.name)
@@ -233,13 +230,12 @@ if not node.parameters.simulate:
             },
         )
     else:
-        load_data_id = node.parameters.load_data_id
-        node = node.load_from_id(load_data_id)
-        ds_leak = node.results["ds_leak"]
-        ds_phase = node.results["ds_phase"]
-        restore_load_data_id(node, load_data_id)
-        machine = node.machine
-        qubit_pairs = resolve_qubit_pairs_from_node(machine, node)
+        ds_leak, machine, _, _ = load_dataset(node.parameters.load_data_id, target_filename="ds_leak")
+        ds_phase, _, _, _ = load_dataset(node.parameters.load_data_id, target_filename="ds_phase")
+        if node.parameters.qubit_pairs is None or node.parameters.qubit_pairs == "":
+            qubit_pairs = machine.active_qubit_pairs
+        else:
+            qubit_pairs = [machine.qubit_pairs[qp] for qp in node.parameters.qubit_pairs]
         coupler_amp_scales = ds_leak.amp_coupler.values
         qubit_amp_scales = ds_leak.amp_qubit.values
         frames = ds_phase.frame.values
@@ -467,7 +463,7 @@ if not node.parameters.simulate:
     node.results["figure_phase"] = grid.fig
 
 # %% {Update_state}
-if not node.parameters.simulate and node.parameters.load_data_id is None:
+if not node.parameters.simulate:
     with node.record_state_updates():
         for qp in qubit_pairs:
             res = node.results["results"][qp.name]
@@ -480,5 +476,6 @@ if not node.parameters.simulate and node.parameters.load_data_id is None:
 if not node.parameters.simulate:
     node.outcomes = {q.name: "successful" for q in qubit_pairs}
     node.results["initial_parameters"] = node.parameters.model_dump()
+    node.machine = machine
     node.save()
 # %%
